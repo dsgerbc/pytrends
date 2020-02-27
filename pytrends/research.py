@@ -288,4 +288,79 @@ def getDailyDataFromDB(dbpath: str,
     return 
 
 
-  
+  def getMonthlyDataFromDB(dbpath: str,
+                       word: str,
+                       geo: str = 'US',
+                       cat: int = 0,
+                       start_year: int = 2004,
+                       stop_year: int = date.today().year,
+                       uniformdata: bool = True
+                       ): 
+    
+    """dbpath - path to database
+    word - keyword to pull
+    geo - locale
+    start/stop_year - obvious
+    uniformdata: True if all data was pulled using either hi or low precision
+                 The code will then take medians by each day
+                 False if the data contains both approaches. 
+                 The code will then take monthly averages for all pulled histories
+                 scale them to match monthly (median) data, and then take daily medians
+                 
+    """  
+    # Set up start and stop dates          
+    start_date = date(start_year, 1, 1)
+    stop_date = min([date(stop_year, 12, 31),date.today()])   
+    #stop date truncated to today. Otherwise google may throw an error
+    if isfile(f'{dbpath}/{cat}_{word}_{geo}.xlsx'):
+        data_m=pd.read_excel(f'{dbpath}/{cat}_{word}_{geo}.xlsx',sheet_name='monthly').set_index('date')[start_date:stop_date]
+    else:
+        print(f"No data found for search term 'Category{cat}/{word}/{geo}'") 
+        return 
+    
+ 
+    monthly_med=pd.DataFrame(data_m.T.median(),columns=[f'{word}_{geo}'])
+    #takes the median of monthly values. Median instead of average to account for possible zero values
+
+
+    return monthly_med
+
+def buildMonthlyDatabase(dbpath: str,
+                  word: str,
+                  geo: str = 'US',
+                  cat: int = 0,
+                  tz: int = 240
+                  ): 
+    
+    if isfile(f'{dbpath}/{cat}_{word}_{geo}.xlsx'):
+        data_m=pd.read_excel(f'{dbpath}/{cat}_{word}_{geo}.xlsx',sheet_name='monthly').set_index('date')
+        # pretty inefficient. Consider re-writing to just dump new columns
+    else:
+        data_m=pd.DataFrame()
+    
+    if word+date.today().strftime("_%m_%d_%Y") in set(data_m.columns):
+        # if today's data has been donwloaded already, google will send the same data again
+        print(f"Today's data already present in the database for search term '{word}/{geo}'") 
+        return 
+    else:
+        start_date = date(2004, 1, 1)
+        stop_date = date.today()   
+        pytrends = TrendReq(hl='en-US', tz=tz)
+        # Initialize build_payload with the word we need data for
+        build_payload = partial(pytrends.build_payload,
+                                kw_list=[word], cat=cat, geo=geo, gprop='')
+    
+        # Obtain monthly data for all months in years [2004, stop_year]
+        monthly = _fetchData(pytrends, build_payload,
+                             getTimeframe(start_date, stop_date)).drop(columns=['isPartial'])   
+        monthly.rename(columns={word:word+date.today().strftime("_%m_%d_%Y")},inplace=True)
+
+        data_m=data_m.join(monthly, how='outer')
+        with pd.ExcelWriter(f'{dbpath}/{cat}_{word}_{geo}.xlsx') as writer:
+            data_m.to_excel(writer,'monthly')
+
+    
+        #stop date truncated to today. Otherwise google may throw an error
+    
+    
+        return 
